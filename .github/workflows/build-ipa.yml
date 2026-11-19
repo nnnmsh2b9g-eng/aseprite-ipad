@@ -3,7 +3,7 @@ name: build-ipa
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, add-build-ipa-workflow]
 
 jobs:
   build-ipa:
