@@ -1,0 +1,69 @@
+name: build-ipa
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build-ipa:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    env:
+      # ios/build.sh puts Skia and the build folders next to the repo
+      # (../deps, ../build-host, ../build-ios-xcode)
+      CONFIGURATION: RelWithDebInfo
+      SCHEME: aseprite
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install cmake ninja
+          python3 --version
+          xcodebuild -version
+
+      - name: Build Skia for iOS and host code generator
+        run: ios/build.sh deps
+
+      - name: Generate Xcode project
+        # Team ID is a placeholder: signing is disabled in the build step.
+        run: ios/build.sh xcode 0000000000 com.example.aseprite
+
+      - name: Build with xcodebuild (no code signing)
+        run: |
+          xcodebuild build \
+            -project "$GITHUB_WORKSPACE/../build-ios-xcode/aseprite.xcodeproj" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+
+      - name: Package unsigned IPA
+        run: |
+          APP_PATH=$(find "$RUNNER_TEMP/DerivedData/Build/Products" -maxdepth 2 -name "*.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found in build products" >&2
+            find "$RUNNER_TEMP/DerivedData/Build/Products" -maxdepth 3 >&2
+            exit 1
+          fi
+          echo "Found app: $APP_PATH"
+          rm -rf "$RUNNER_TEMP/ipa" && mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP_PATH" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/Aseprite-unsigned.ipa" Payload)
+          ls -lh "$GITHUB_WORKSPACE/Aseprite-unsigned.ipa"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aseprite-unsigned-ipa
+          path: Aseprite-unsigned.ipa
+          if-no-files-found: error
