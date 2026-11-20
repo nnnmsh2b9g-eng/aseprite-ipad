@@ -49,10 +49,15 @@ jobs:
 
       - name: Package unsigned IPA
         run: |
-          APP_PATH=$(find "$RUNNER_TEMP/DerivedData/Build/Products" -maxdepth 2 -name "*.app" -type d | head -n 1)
+          # CMake's Xcode generator may write the .app to its own output dir
+          # (build-ios-xcode/bin/...) instead of DerivedData, so search both.
+          XCODE_BUILD_DIR="$(cd "$GITHUB_WORKSPACE/.." && pwd)/build-ios-xcode"
+          APP_PATH=$(find "$XCODE_BUILD_DIR" "$RUNNER_TEMP/DerivedData" \
+            -name "*.app" -type d -not -path "*.dSYM*" -not -path "*/*.app/*" \
+            2>/dev/null | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            echo "No .app found in build products" >&2
-            find "$RUNNER_TEMP/DerivedData/Build/Products" -maxdepth 3 >&2
+            echo "No .app found" >&2
+            find "$XCODE_BUILD_DIR" "$RUNNER_TEMP/DerivedData" -maxdepth 4 -name "*.app*" >&2 || true
             exit 1
           fi
           echo "Found app: $APP_PATH"
